@@ -1,5 +1,5 @@
 [package]
-authors = ["aarbuzov"]
+authors = ["aarbuzov", "tuck@whistlingfish.net"]
 name = "zmodem"
 license = "MIT OR Apache-2.0"
 version = "0.1.0"
