@@ -64,7 +64,7 @@ impl State {
     }
 }
 
-pub fn send<RW, R>(rw: RW, r: &mut R, filename: &str, filesize: Option<u32>) -> Result<()> 
+pub fn send<RW, R>(rw: RW, r: &mut R, filename: &str, filesize: Option<u32>) -> Result<RW>
     where RW: Read + Write,
           R:  Read + Seek
 {
@@ -142,6 +142,6 @@ pub fn send<RW, R>(rw: RW, r: &mut R, filename: &str, filesize: Option<u32>) -> 
         }
     }
 
-    Ok(())
+    Ok(rw_log.into_inner())
 }
 

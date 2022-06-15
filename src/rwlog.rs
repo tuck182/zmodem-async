@@ -12,6 +12,10 @@ impl<RW: Read + Write> ReadWriteLog<RW> {
             inner: BufReader::new(rw),
         }
     }
+
+    pub fn into_inner(self) -> RW {
+        self.inner.into_inner()
+    }
 }
 
 impl<R: Read> Read for ReadWriteLog<R> {
