@@ -1,5 +1,6 @@
-use std::io::{Read, Write, Result, Seek, SeekFrom};
+use std::io::{Read, Write, Seek, SeekFrom};
 
+use error::Result;
 use consts::*;
 use proto::*;
 use rwlog;

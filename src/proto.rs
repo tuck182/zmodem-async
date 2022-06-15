@@ -5,10 +5,11 @@ use log::LogLevel::{Debug};
 use consts::*;
 use frame::*;
 use crc::*;
+use error::{Result, ProtocolError};
 
 /// Looking for sequence: ZPAD [ZPAD] ZLDE
 /// Returns true if found otherwise false
-pub fn find_zpad<R>(r: &mut R) -> io::Result<bool>
+pub fn find_zpad<R>(r: &mut R) -> Result<bool>
     where R: io::Read {
 
     // looking for first ZPAD
@@ -32,7 +33,7 @@ pub fn find_zpad<R>(r: &mut R) -> io::Result<bool>
     Ok(true)
 }
 
-pub fn parse_header<'a, R>(mut r: R) -> io::Result<Option<Frame>>
+pub fn parse_header<'a, R>(mut r: R) -> Result<Option<Frame>>
     where R: io::Read {
 
     let header = read_byte(&mut r)?;
@@ -88,7 +89,7 @@ pub fn parse_header<'a, R>(mut r: R) -> io::Result<Option<Frame>>
 }
 
 /// Read out up to len bytes and remove escaped ones
-fn read_exact_unescaped<R>(mut r: R, buf: &mut [u8]) -> io::Result<()>
+fn read_exact_unescaped<R>(mut r: R, buf: &mut [u8]) -> Result<()>
     where R: io::Read {
 
     for x in buf {
@@ -104,7 +105,7 @@ fn read_exact_unescaped<R>(mut r: R, buf: &mut [u8]) -> io::Result<()>
 /// Receives sequence: <escaped data> ZLDE ZCRC* <CRC bytes>
 /// Unescapes sequencies such as 'ZLDE <escaped byte>'
 /// If Ok returns <unescaped data> in buf and ZCRC* byte as return value
-pub fn recv_zlde_frame<R>(header: u8, r: &mut R, buf: &mut Vec<u8>) -> io::Result<Option<u8>>
+pub fn recv_zlde_frame<R>(header: u8, r: &mut R, buf: &mut Vec<u8>) -> Result<Option<u8>>
     where R: io::BufRead {
 
     loop {
@@ -137,7 +138,7 @@ pub fn recv_zlde_frame<R>(header: u8, r: &mut R, buf: &mut Vec<u8>) -> io::Resul
     Ok(buf.pop()) // pop ZCRC* byte
 }
 
-pub fn recv_data<RW, OUT>(header: u8, count: &mut u32, rw: &mut RW, out: &mut OUT) -> io::Result<bool> 
+pub fn recv_data<RW, OUT>(header: u8, count: &mut u32, rw: &mut RW, out: &mut OUT) -> Result<bool>
     where RW: io::Write + io::BufRead,
          OUT: io::Write {
 
@@ -172,7 +173,7 @@ pub fn recv_data<RW, OUT>(header: u8, count: &mut u32, rw: &mut RW, out: &mut OU
                 debug!("CCRCG: CRC next, frame continues nonstop");
             },
             _     => {
-                panic!(format!("unexpected ZCRC byte: {:02X}", zcrc));
+                return Err(ProtocolError::UnexpectedByteError(zcrc).into());
             },
         }
     }
@@ -195,30 +196,32 @@ fn is_escaped(byte: u8) -> bool {
 }
 
 /// Reads out one byte
-fn read_byte<R>(r: &mut R) -> io::Result<u8>
+fn read_byte<R>(r: &mut R) -> Result<u8>
     where R: io::Read {
     let mut b = [0; 1];
-    r.read_exact(&mut b).map(|_| b[0])
+    r.read_exact(&mut b).map(|_| b[0]).map_err(|e| e.into())
 }
 
 /// Writes ZRINIT frame
-pub fn write_zrinit<W>(w: &mut W) -> io::Result<()>
+pub fn write_zrinit<W>(w: &mut W) -> Result<()>
     where W: io::Write {
 
     debug!("write ZRINIT");
-    w.write_all(&Frame::new(ZHEX, ZRINIT).flags(&[0, 0, 0, 0x23]).build())
+    w.write_all(&Frame::new(ZHEX, ZRINIT).flags(&[0, 0, 0, 0x23]).build())?;
+    Ok(())
 }
 
 /// Writes ZRQINIT frame
-pub fn write_zrqinit<W>(w: &mut W) -> io::Result<()>
+pub fn write_zrqinit<W>(w: &mut W) -> Result<()>
     where W: io::Write {
 
     debug!("write ZRQINIT");
     w.write_all(&Frame::new(ZHEX, ZRQINIT).build())
+        .map_err(|e| e.into())
 }
 
 /// Writes ZFILE frame
-pub fn write_zfile<W>(w: &mut W, filename: &str, filesize: Option<u32>) -> io::Result<()>
+pub fn write_zfile<W>(w: &mut W, filename: &str, filesize: Option<u32>) -> Result<()>
     where W: io::Write {
 
     debug!("write ZFILE");
@@ -235,54 +238,60 @@ pub fn write_zfile<W>(w: &mut W, filename: &str, filesize: Option<u32>) -> io::R
 }
 
 /// Writes ZACK frame
-pub fn write_zack<W>(w: &mut W, count: u32) -> io::Result<()>
+pub fn write_zack<W>(w: &mut W, count: u32) -> Result<()>
     where W: io::Write {
 
     debug!("write ZACK bytes={}", count);
     w.write_all(&Frame::new(ZHEX, ZACK).count(count).build())
+        .map_err(|e| e.into())
 }
 
 /// Writes ZFIN frame
-pub fn write_zfin<W>(w: &mut W) -> io::Result<()>
+pub fn write_zfin<W>(w: &mut W) -> Result<()>
     where W: io::Write {
 
     debug!("write ZFIN");
     w.write_all(&Frame::new(ZHEX, ZFIN).build())
+        .map_err(|e| e.into())
 }
 
 /// Writes ZNAK frame
-pub fn write_znak<W>(w: &mut W) -> io::Result<()>
+pub fn write_znak<W>(w: &mut W) -> Result<()>
     where W: io::Write {
 
     debug!("write ZNAK");
     w.write_all(&Frame::new(ZHEX, ZNAK).build())
+        .map_err(|e| e.into())
 }
 
 /// Writes ZRPOS frame
-pub fn write_zrpos<W>(w: &mut W, count: u32) -> io::Result<()>
+pub fn write_zrpos<W>(w: &mut W, count: u32) -> Result<()>
     where W: io::Write {
 
     debug!("write ZRPOS bytes={}", count);
     w.write_all(&Frame::new(ZHEX, ZRPOS).count(count).build())
+        .map_err(|e| e.into())
 }
 
 /// Writes ZDATA frame
-pub fn write_zdata<W>(w: &mut W, offset: u32) -> io::Result<()>
+pub fn write_zdata<W>(w: &mut W, offset: u32) -> Result<()>
     where W: io::Write {
 
     debug!("write ZDATA offset={}", offset);
     w.write_all(&Frame::new(ZBIN32, ZDATA).count(offset).build())
+        .map_err(|e| e.into())
 }
 
 /// Writes ZEOF frame
-pub fn write_zeof<W>(w: &mut W, offset: u32) -> io::Result<()>
+pub fn write_zeof<W>(w: &mut W, offset: u32) -> Result<()>
     where W: io::Write {
 
     debug!("write ZEOF offset={}", offset);
     w.write_all(&Frame::new(ZBIN32, ZEOF).count(offset).build())
+        .map_err(|e| e.into())
 }
 
-pub fn write_zlde_data<W>(w: &mut W, zcrc_byte: u8, data: &[u8]) -> io::Result<()>
+pub fn write_zlde_data<W>(w: &mut W, zcrc_byte: u8, data: &[u8]) -> Result<()>
     where W: io::Write {
 
     if log_enabled!(Debug) {
@@ -306,7 +315,7 @@ pub fn write_zlde_data<W>(w: &mut W, zcrc_byte: u8, data: &[u8]) -> io::Result<(
     Ok(())
 }
 
-fn write_escape<W>(w: &mut W, data: &[u8]) -> io::Result<()>
+fn write_escape<W>(w: &mut W, data: &[u8]) -> Result<()>
     where W: io::Write {
 
     //let mut w = io::BufWriter::new(w);
@@ -314,13 +323,15 @@ fn write_escape<W>(w: &mut W, data: &[u8]) -> io::Result<()>
     let mut esc_data = Vec::with_capacity(data.len() + data.len()/10);
     escape_buf(data, &mut esc_data);
     w.write_all(&esc_data)
+        .map_err(|e| e.into())
 }
 
 /// Writes "Over & Out"
-pub fn write_over_and_out<W>(w: &mut W) -> io::Result<()>
+pub fn write_over_and_out<W>(w: &mut W) -> Result<()>
     where W: io::Write
 {
     w.write_all("OO".as_bytes())
+        .map_err(|e| e.into())
 }
 
 

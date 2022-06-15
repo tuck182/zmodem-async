@@ -3,7 +3,7 @@ use log::LogLevel::*;
 use hexdump::*;
 
 pub struct ReadWriteLog<RW> {
-    inner: BufReader<RW>, 
+    inner: BufReader<RW>,
 }
 
 impl<RW: Read + Write> ReadWriteLog<RW> {

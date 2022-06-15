@@ -1,6 +1,7 @@
 use std::{thread, time};
-use std::io::{Read, Write, Result};
+use std::io::{Read, Write};
 use std::str::from_utf8;
+use error::Result;
 
 use consts::*;
 use proto::*;
@@ -53,7 +54,7 @@ impl State {
 }
 
 /// Receives data by Z-Modem protocol
-pub fn recv<RW, W>(rw: RW, mut w: W) -> Result<usize> 
+pub fn recv<RW, W>(rw: RW, mut w: W) -> Result<usize>
     where RW: Read + Write,
           W:  Write
 {
