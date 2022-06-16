@@ -2,10 +2,10 @@ use std::io;
 use hex::*;
 use log::LogLevel::{Debug};
 
-use consts::*;
-use frame::*;
-use crc::*;
-use error::{Result, ProtocolError};
+use crate::consts::*;
+use crate::frame::*;
+use crate::crc::*;
+use crate::error::{Result, ProtocolError};
 
 /// Looking for sequence: ZPAD [ZPAD] ZLDE
 /// Returns true if found otherwise false
@@ -351,8 +351,8 @@ pub fn escape_buf(src: &[u8], dst: &mut Vec<u8>) {
 mod tests {
     #![allow(unused_imports)]
 
-    use consts::*;
-    use frame::*;
+    use crate::consts::*;
+    use crate::frame::*;
     use super::*;
 
     #[test]

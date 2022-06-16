@@ -1,12 +1,12 @@
 use std::{thread, time};
 use std::io::{Read, Write};
 use std::str::from_utf8;
-use error::Result;
 
-use consts::*;
-use proto::*;
-use rwlog;
-use frame::*;
+use crate::error::Result;
+use crate::consts::*;
+use crate::proto::*;
+use crate::rwlog;
+use crate::frame::*;
 
 #[derive(Debug, PartialEq)]
 enum State {

@@ -1,8 +1,9 @@
 use std::fmt;
-use consts::*;
-use crc;
 use hex::*;
-use proto;
+
+use crate::consts::*;
+use crate::crc;
+use crate::proto;
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct Frame {

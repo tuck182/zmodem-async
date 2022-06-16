@@ -1,6 +1,6 @@
-use crc32::{crc32};
-use crc32::crc32::IEEE_TABLE;
-use crc32::crc32::update;
+use crc::{crc32};
+use crc::crc32::IEEE_TABLE;
+use crc::crc32::update;
 
 /* crctab calculated by Mark G. Mendel, Network Systems Corporation */
 static CRCTAB: [u16; 256] = [
