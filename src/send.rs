@@ -1,4 +1,5 @@
-use std::io::{Read, Write, Seek, SeekFrom};
+use std::io::SeekFrom;
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeek, AsyncSeekExt, AsyncWrite, AsyncWriteExt};
 
 use crate::error::Result;
 use crate::consts::*;
@@ -64,29 +65,29 @@ impl State {
     }
 }
 
-pub fn send<RW, R>(rw: RW, r: &mut R, filename: &str, filesize: Option<u32>) -> Result<RW>
-    where RW: Read + Write,
-          R:  Read + Seek
+pub async fn send<RW, R>(rw: RW, r: &mut R, filename: &str, filesize: Option<u32>) -> Result<RW>
+    where RW: AsyncRead + AsyncWrite + Unpin,
+          R:  AsyncRead + AsyncSeek + Unpin
 {
     let mut rw_log = rwlog::ReadWriteLog::new(rw);
 
     let mut data = [0; SUBPACKET_SIZE];
     let mut offset: u32;
 
-    write_zrqinit(&mut rw_log)?;
+    write_zrqinit(&mut rw_log).await?;
 
     let mut state = State::new();
 
     while state != State::Done {
-        rw_log.flush()?;
+        rw_log.flush().await?;
 
-        if !find_zpad(&mut rw_log)? {
+        if !find_zpad(&mut rw_log).await? {
             continue;
         }
 
-        let frame = match parse_header(&mut rw_log)? {
+        let frame = match parse_header(&mut rw_log).await? {
             Some(x) => x,
-            None    => { write_znak(&mut rw_log)?; continue },
+            None    => { write_znak(&mut rw_log).await?; continue },
         };
 
         state = state.next(&frame);
@@ -95,19 +96,19 @@ pub fn send<RW, R>(rw: RW, r: &mut R, filename: &str, filesize: Option<u32>) -> 
         // do things according new state
         match state {
             State::SendingZRQINIT => {
-                write_zrqinit(&mut rw_log)?;
+                write_zrqinit(&mut rw_log).await?;
             },
             State::SendingZFILE => {
-                write_zfile(&mut rw_log, filename, filesize)?;
+                write_zfile(&mut rw_log, filename, filesize).await?;
             },
             State::SendingData  => {
                 offset = frame.get_count();
-                r.seek(SeekFrom::Start(offset as u64))?;
+                r.seek(SeekFrom::Start(offset as u64)).await?;
 
-                let num = r.read(&mut data)?;
+                let num = r.read(&mut data).await?;
 
                 if num == 0 {
-                    write_zeof(&mut rw_log, offset)?;
+                    write_zeof(&mut rw_log, offset).await?;
                 }
                 else {
                     // ZBIN32|ZDATA
@@ -115,28 +116,28 @@ pub fn send<RW, R>(rw: RW, r: &mut R, filename: &str, filesize: Option<u32>) -> 
                     // ZCRCQ - mid perf
                     // ZCRCW - worst perf
                     // ZCRCE - send at end
-                    write_zdata(&mut rw_log, offset)?;
+                    write_zdata(&mut rw_log, offset).await?;
 
                     let mut i = 0;
                     loop {
                         i += 1;
 
-                        write_zlde_data(&mut rw_log, ZCRCG, &data[..num])?;
+                        write_zlde_data(&mut rw_log, ZCRCG, &data[..num]).await?;
                         offset += num as u32;
 
-                        let num = r.read(&mut data)?;
+                        let num = r.read(&mut data).await?;
                         if num < data.len() || i >= SUBPACKET_PER_ACK {
-                            write_zlde_data(&mut rw_log, ZCRCW, &data[..num])?;
+                            write_zlde_data(&mut rw_log, ZCRCW, &data[..num]).await?;
                             break;
                         }
                     }
                 }
             },
             State::SendingZFIN  => {
-                write_zfin(&mut rw_log)?;
+                write_zfin(&mut rw_log).await?;
             },
             State::Done         => {
-                write_over_and_out(&mut rw_log)?;
+                write_over_and_out(&mut rw_log).await?;
             },
             _ => (),
         }

@@ -1,12 +1,19 @@
-use std::io::*;
+use std::io::Error;
+use std::pin::Pin;
+use std::task::{Context, Poll};
 use log::LogLevel::*;
 use hexdump::*;
+use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite, BufReader, ReadBuf};
+use pin_project_lite::pin_project;
 
-pub struct ReadWriteLog<RW> {
-    inner: BufReader<RW>,
+pin_project! {
+    pub struct ReadWriteLog<RW> {
+        #[pin]
+        inner: BufReader<RW>,
+    }
 }
 
-impl<RW: Read + Write> ReadWriteLog<RW> {
+impl<RW: AsyncRead + AsyncWrite> ReadWriteLog<RW> {
     pub fn new(rw: RW) -> ReadWriteLog<RW> {
         ReadWriteLog {
             inner: BufReader::new(rw),
@@ -18,54 +25,67 @@ impl<RW: Read + Write> ReadWriteLog<RW> {
     }
 }
 
-impl<R: Read> Read for ReadWriteLog<R> {
-    fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
-        let r = self.inner.read(buf)?;
-
-        if log_enabled!(Debug) {
-            debug!("In:");
-            for x in hexdump_iter(&buf[..r]) {
-                debug!("{}", x);
-            }
+impl<R: AsyncRead> AsyncRead for ReadWriteLog<R> {
+    fn poll_read(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<std::io::Result<()>> {
+        match self.project().inner.poll_read(cx, buf) {
+            Poll::Ready(Ok(r)) => {
+                if log_enabled!(Debug) {
+                    debug!("In:");
+                    for x in hexdump_iter(buf.filled()) {
+                        debug!("{}", x);
+                    }
+                }
+                Poll::Ready(Ok(r))
+            },
+            otherwise => otherwise,
         }
-
-        Ok(r)
     }
 }
 
-impl<R: Read> BufRead for ReadWriteLog<R> {
-    fn fill_buf(&mut self) -> Result<&[u8]> {
-        let r = self.inner.fill_buf()?;
+impl<R: AsyncRead> AsyncBufRead for ReadWriteLog<R> {
 
-        if log_enabled!(Debug) {
-            debug!("In:");
-            for x in hexdump_iter(r) {
-                debug!("{}", x);
-            }
+    fn poll_fill_buf(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<&[u8]>> {
+        match self.project().inner.poll_fill_buf(cx) {
+            Poll::Ready(Ok(r)) => {
+                if log_enabled!(Debug) {
+                    debug!("In:");
+                    for x in hexdump_iter(r) {
+                        debug!("{}", x);
+                    }
+                }
+                Poll::Ready(Ok(r))
+            },
+            otherwise => otherwise,
         }
-
-        Ok(r)
     }
 
-    fn consume(&mut self, amt: usize) {
-        self.inner.consume(amt)
+    fn consume(self: Pin<&mut Self>, amt: usize) {
+        self.project().inner.consume(amt)
     }
 }
 
-impl<RW: Write + Read> Write for ReadWriteLog<RW> {
-    fn write(&mut self, buf: &[u8]) -> Result<usize> {
-        if log_enabled!(Debug) {
-            debug!("Out:");
-            for x in hexdump_iter(buf) {
-                debug!("{}", x);
-            }
+impl<RW: AsyncWrite + AsyncRead> AsyncWrite for ReadWriteLog<RW> {
+    fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<Result<usize, Error>> {
+        match self.project().inner.poll_write(cx, buf) {
+            Poll::Ready(Ok(n)) => {
+                if log_enabled!(Debug) {
+                    debug!("Out:");
+                    for x in hexdump_iter(&buf[0..n]) {
+                        debug!("{}", x);
+                    }
+                }
+                Poll::Ready(Ok(n))
+            },
+            otherwise => otherwise,
         }
-
-        self.inner.get_mut().write(buf)
     }
 
-    fn flush(&mut self) -> Result<()> {
-        self.inner.get_mut().flush()
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Error>> {
+        self.project().inner.poll_flush(cx)
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Error>> {
+        self.project().inner.poll_shutdown(cx)
     }
 }
 

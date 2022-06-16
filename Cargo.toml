@@ -12,8 +12,11 @@ env_logger = "0.4.2"
 hex = "0.2.0"
 hexdump = "0.1.0"
 log = "0.3.7"
+pin-project-lite = "0.2"
 thiserror = "1.0"
+tokio = { version = "1.18", features = ["io-util"] }
 
 [dev-dependencies]
 lazy_static = "1"
 rand = "0.3.15"
+tokio = { version = "1.18", features = ["fs", "macros", "process", "rt-multi-thread", "time"] }

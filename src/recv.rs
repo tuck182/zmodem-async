@@ -1,6 +1,6 @@
 use std::{thread, time};
-use std::io::{Read, Write};
 use std::str::from_utf8;
+use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::error::Result;
 use crate::consts::*;
@@ -54,25 +54,25 @@ impl State {
 }
 
 /// Receives data by Z-Modem protocol
-pub fn recv<RW, W>(rw: RW, mut w: W) -> Result<usize>
-    where RW: Read + Write,
-          W:  Write
+pub async fn recv<RW, W>(rw: RW, mut w: W) -> Result<usize>
+    where RW: AsyncRead + AsyncWrite + Unpin,
+          W:  AsyncWrite + Unpin
 {
     let mut rw_log = rwlog::ReadWriteLog::new(rw);
     let mut count = 0;
 
     let mut state = State::new();
 
-    write_zrinit(&mut rw_log)?;
+    write_zrinit(&mut rw_log).await?;
 
     while state != State::Done {
-        if !find_zpad(&mut rw_log)? {
+        if !find_zpad(&mut rw_log).await? {
             continue;
         }
 
-        let frame = match parse_header(&mut rw_log)? {
+        let frame = match parse_header(&mut rw_log).await? {
             Some(x) => x,
-            None    => { recv_error(&mut rw_log, &state, count)?; continue },
+            None    => { recv_error(&mut rw_log, &state, count).await?; continue },
         };
 
         state = state.next(&frame);
@@ -81,16 +81,16 @@ pub fn recv<RW, W>(rw: RW, mut w: W) -> Result<usize>
         // do things according new state
         match state {
             State::SendingZRINIT => {
-                write_zrinit(&mut rw_log)?;
+                write_zrinit(&mut rw_log).await?;
             },
             State::ProcessingZFILE => {
                 let mut buf = Vec::new();
 
-                if recv_zlde_frame(frame.get_header(), &mut rw_log, &mut buf)?.is_none() {
-                    write_znak(&mut rw_log)?;
+                if recv_zlde_frame(frame.get_header(), &mut rw_log, &mut buf).await?.is_none() {
+                    write_znak(&mut rw_log).await?;
                 }
                 else {
-                    write_zrpos(&mut rw_log, count)?;
+                    write_zrpos(&mut rw_log, count).await?;
 
                     // TODO: process supplied data
                     if let Ok(s) = from_utf8(&buf) {
@@ -100,8 +100,8 @@ pub fn recv<RW, W>(rw: RW, mut w: W) -> Result<usize>
             },
             State::ReceivingData => {
                 if frame.get_count() != count ||
-                    !recv_data(frame.get_header(), &mut count, &mut rw_log, &mut w)? {
-                    write_zrpos(&mut rw_log, count)?;
+                    !recv_data(frame.get_header(), &mut count, &mut rw_log, &mut w).await? {
+                    write_zrpos(&mut rw_log, count).await?;
                 }
             },
             State::CheckingData => {
@@ -110,11 +110,11 @@ pub fn recv<RW, W>(rw: RW, mut w: W) -> Result<usize>
                     // receiver ignores the ZEOF because a new zdata is coming
                 }
                 else {
-                    write_zrinit(&mut rw_log)?;
+                    write_zrinit(&mut rw_log).await?;
                 }
             },
             State::Done => {
-                write_zfin(&mut rw_log)?;
+                write_zfin(&mut rw_log).await?;
                 thread::sleep(time::Duration::from_millis(10)); // sleep a bit
             },
         }
@@ -123,14 +123,14 @@ pub fn recv<RW, W>(rw: RW, mut w: W) -> Result<usize>
     Ok(count as usize)
 }
 
-fn recv_error<W>(w: &mut W, state: &State, count: u32) -> Result<()>
-    where W: Write
+async fn recv_error<W>(w: &mut W, state: &State, count: u32) -> Result<()>
+    where W: AsyncWrite + Unpin
 {
     // TODO: flush input
 
     match *state {
-        State::ReceivingData => write_zrpos(w, count),
-        _                    => write_znak(w),
+        State::ReceivingData => write_zrpos(w, count).await,
+        _                    => write_znak(w).await,
     }
 }
 

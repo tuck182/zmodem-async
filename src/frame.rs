@@ -77,7 +77,7 @@ impl Frame {
             }
         }
 
-        out 
+        out
     }
 
     pub fn get_frame_type(&self) -> u8 {
@@ -133,7 +133,7 @@ impl fmt::Display for Frame {
             ZSTDERR    => "ZSTDERR",
             _          => "???",
         };
-        
+
         write!(f, "{}({})", hdr, ft)
     }
 }

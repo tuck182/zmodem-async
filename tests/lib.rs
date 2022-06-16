@@ -1,40 +1,55 @@
-extern crate zmodem;
-extern crate log;
-extern crate env_logger;
-#[macro_use] extern crate lazy_static;
-extern crate rand;
-
-use std::process::*;
-use std::fs::{File, remove_file, OpenOptions};
-use std::io::*;
-use std::time::*;
-use std::thread::{sleep, spawn};
+use lazy_static::lazy_static;
+use pin_project_lite::pin_project;
+use std::io::Cursor;
+use std::pin::Pin;
+use std::process::Stdio;
 use std::result;
+use std::task::{Context, Poll};
+use std::time::Duration;
+use tokio::fs::{File, OpenOptions, remove_file};
+use tokio::io;
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::process::Command;
+use tokio::time::sleep;
 
-struct InOut<R: Read, W: Write> {
-    r: R,
-    w: W,
-}
-
-impl<R: Read, W: Write> InOut<R, W> {
-    pub fn new(r: R, w: W) -> InOut<R, W> {
-        InOut { r, w }
+pin_project! {
+    pub struct AsyncReadWrite<R, W> {
+        #[pin]
+        inner_read:  R,
+        #[pin]
+        inner_write: W,
     }
 }
 
-impl<R: Read, W: Write> Read for InOut<R, W> {
-    fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
-        self.r.read(buf)
+impl<R, W> AsyncReadWrite<R, W>
+        where R: AsyncRead + Unpin, W: AsyncWrite + Unpin {
+    pub fn new(read: R, write: W) -> Self {
+        Self {
+            inner_read:  read,
+            inner_write: write,
+        }
     }
 }
 
-impl<R: Read, W: Write> Write for InOut<R, W> {
-    fn write(&mut self, buf: &[u8]) -> Result<usize> {
-        self.w.write(buf)
+impl<R, W> AsyncRead for AsyncReadWrite<R, W>
+        where R: AsyncRead + Unpin, W: AsyncWrite + Unpin {
+    fn poll_read(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut io::ReadBuf<'_>) -> Poll<io::Result<()>> {
+        self.project().inner_read.poll_read(cx, buf)
+    }
+}
+
+impl<R, W> AsyncWrite for AsyncReadWrite<R, W>
+        where R: AsyncRead + Unpin, W: AsyncWrite + Unpin {
+    fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<io::Result<usize>> {
+        self.project().inner_write.poll_write(cx, buf)
     }
 
-    fn flush(&mut self) -> Result<()> {
-        self.w.flush()
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        self.project().inner_write.poll_flush(cx)
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        self.project().inner_write.poll_shutdown(cx)
     }
 }
 
@@ -49,13 +64,13 @@ lazy_static! {
     };
 }
 
-#[test]
+#[tokio::test]
 #[cfg(unix)]
-fn recv_from_sz() {
+async fn recv_from_sz() {
     let _ = LOG_INIT.is_ok();
 
-    let mut f = File::create("recv_from_sz").unwrap();
-    f.write_all(&RND_VALUES).unwrap();
+    let mut f = File::create("recv_from_sz").await.unwrap();
+    f.write_all(&RND_VALUES).await.unwrap();
 
     let sz = Command::new("sz")
             .arg("recv_from_sz")
@@ -66,20 +81,20 @@ fn recv_from_sz() {
 
     let child_stdin = sz.stdin.unwrap();
     let child_stdout = sz.stdout.unwrap();
-    let mut inout = InOut::new(child_stdout, child_stdin);
+    let mut inout = AsyncReadWrite::new(child_stdout, child_stdin);
 
     let mut c = Cursor::new(Vec::new());
-    zmodem::recv::recv(&mut inout, &mut c).unwrap();
+    zmodem::recv::recv(&mut inout, &mut c).await.unwrap();
 
-    sleep(Duration::from_millis(300));
-    remove_file("recv_from_sz").unwrap();
+    sleep(Duration::from_millis(300)).await;
+    remove_file("recv_from_sz").await.unwrap();
 
     assert_eq!(RND_VALUES.clone(), c.into_inner());
 }
 
-#[test]
+#[tokio::test]
 #[cfg(unix)]
-fn send_to_rz() {
+async fn send_to_rz() {
     let _ = LOG_INIT.is_ok();
 
     let _ = remove_file("send_to_rz");
@@ -92,29 +107,29 @@ fn send_to_rz() {
 
     let child_stdin = sz.stdin.unwrap();
     let child_stdout = sz.stdout.unwrap();
-    let mut inout = InOut::new(child_stdout, child_stdin);
+    let mut inout = AsyncReadWrite::new(child_stdout, child_stdin);
 
     let len = RND_VALUES.len() as u32;
     let copy = RND_VALUES.clone();
     let mut cur = Cursor::new(&copy);
 
-    sleep(Duration::from_millis(300));
+    sleep(Duration::from_millis(300)).await;
 
-    zmodem::send::send(&mut inout, &mut cur, "send_to_rz", Some(len)).unwrap();
+    zmodem::send::send(&mut inout, &mut cur, "send_to_rz", Some(len)).await.unwrap();
 
-    sleep(Duration::from_millis(300));
+    sleep(Duration::from_millis(300)).await;
 
-    let mut f = File::open("send_to_rz").expect("open 'send_to_rz'");
+    let mut f = File::open("send_to_rz").await.expect("open 'send_to_rz'");
     let mut received = Vec::new();
-    f.read_to_end(&mut received).unwrap();
-    remove_file("send_to_rz").unwrap();
+    f.read_to_end(&mut received).await.unwrap();
+    remove_file("send_to_rz").await.unwrap();
 
-    assert!(copy == received);
+    assert_eq!(copy, received);
 }
 
-#[test]
+#[tokio::test]
 #[cfg(unix)]
-fn lib_send_recv() {
+async fn lib_send_recv() {
     let _ = LOG_INIT;
 
     let _ = remove_file("test-fifo1");
@@ -132,29 +147,29 @@ fn lib_send_recv() {
             .expect("mkfifo failed to run")
             .wait();
 
-    sleep(Duration::from_millis(300));
+    sleep(Duration::from_millis(300)).await;
 
-    spawn(move || {
-        let outf = OpenOptions::new().write(true).open("test-fifo1").unwrap();
-        let inf = File::open("test-fifo2").unwrap();
-        let mut inout = InOut::new(inf, outf);
+    tokio::spawn(async move {
+        let outf = OpenOptions::new().write(true).open("test-fifo1").await.unwrap();
+        let inf = File::open("test-fifo2").await.unwrap();
+        let mut inout = AsyncReadWrite::new(inf, outf);
 
         let origin = RND_VALUES.clone();
         let mut c = Cursor::new(&origin);
 
-        zmodem::send::send(&mut inout, &mut c, "test", None).unwrap();
+        zmodem::send::send(&mut inout, &mut c, "test", None).await.unwrap();
     });
 
     let mut c = Cursor::new(Vec::new());
 
-    let inf = File::open("test-fifo1").unwrap();
-    let outf = OpenOptions::new().write(true).open("test-fifo2").unwrap();
-    let mut inout = InOut::new(inf, outf);
+    let inf = File::open("test-fifo1").await.unwrap();
+    let outf = OpenOptions::new().write(true).open("test-fifo2").await.unwrap();
+    let mut inout = AsyncReadWrite::new(inf, outf);
 
-    zmodem::recv::recv(&mut inout, &mut c).unwrap();
+    zmodem::recv::recv(&mut inout, &mut c).await.unwrap();
 
-    let _ = remove_file("test-fifo1");
-    let _ = remove_file("test-fifo2");
+    let _ = remove_file("test-fifo1").await;
+    let _ = remove_file("test-fifo2").await;
 
     assert_eq!(RND_VALUES.clone(), c.into_inner());
 }

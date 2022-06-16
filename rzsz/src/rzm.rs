@@ -4,7 +4,7 @@ extern crate log;
 extern crate env_logger;
 extern crate clap;
 
-mod stdinout;
+mod read_write;
 
 use std::fs::File;
 use std::path::Path;
@@ -23,6 +23,6 @@ fn main() {
     let filename = Path::new(fileopt).file_name().unwrap().clone();
     let file = File::create(filename).expect(&format!("Cannot create file {:?}:", filename));
 
-    let inout = stdinout::CombinedStdInOut::new();
+    let inout = read_write::AsyncReadWrite::new();
     zmodem::recv::recv(inout, file).unwrap();
 }

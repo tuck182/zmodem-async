@@ -1,0 +1,18 @@
+[package]
+name = "rzsz"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "rzm"
+path = "src/rzm.rs"
+
+[[bin]]
+name = "szm"
+path = "src/szm.rs"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+zmodem = { version = "0.1", path = "../" }
+tokio = { version = "1.18", features = ["io-std"] }
