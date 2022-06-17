@@ -1,10 +1,10 @@
 use std::io::Error;
 use std::pin::Pin;
 use std::task::{Context, Poll};
-use log::LogLevel::*;
-use hexdump::*;
+use log::LogLevel::Debug;
 use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite, BufReader, ReadBuf};
 use pin_project_lite::pin_project;
+use pretty_hex::pretty_hex;
 
 pin_project! {
     pub struct ReadWriteLog<RW> {
@@ -31,9 +31,7 @@ impl<R: AsyncRead> AsyncRead for ReadWriteLog<R> {
             Poll::Ready(Ok(r)) => {
                 if log_enabled!(Debug) {
                     debug!("In:");
-                    for x in hexdump_iter(buf.filled()) {
-                        debug!("{}", x);
-                    }
+                    debug!("{}", pretty_hex(&buf.filled()));
                 }
                 Poll::Ready(Ok(r))
             },
@@ -49,9 +47,7 @@ impl<R: AsyncRead> AsyncBufRead for ReadWriteLog<R> {
             Poll::Ready(Ok(r)) => {
                 if log_enabled!(Debug) {
                     debug!("In:");
-                    for x in hexdump_iter(r) {
-                        debug!("{}", x);
-                    }
+                    debug!("{}", pretty_hex(&r));
                 }
                 Poll::Ready(Ok(r))
             },
@@ -70,9 +66,7 @@ impl<RW: AsyncWrite + AsyncRead> AsyncWrite for ReadWriteLog<RW> {
             Poll::Ready(Ok(n)) => {
                 if log_enabled!(Debug) {
                     debug!("Out:");
-                    for x in hexdump_iter(&buf[0..n]) {
-                        debug!("{}", x);
-                    }
+                    debug!("{}", pretty_hex(&&buf[0..n]));
                 }
                 Poll::Ready(Ok(n))
             },
